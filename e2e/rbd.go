@@ -595,6 +595,106 @@ var _ = Describe("RBD", func() {
 				}
 			})
 
+			By("create a PVC and bind it to an app encrypted RBD volume and validate LUKS format", func() {
+				defaultLUKSFormat := "LUKS2"
+				err := deleteResource(rbdExamplePath + "storageclass.yaml")
+				if err != nil {
+					e2elog.Failf("failed to delete storageclass with error %v", err)
+				}
+				err = createRBDStorageClass(
+					f.ClientSet,
+					f,
+					defaultSCName,
+					nil,
+					map[string]string{"encrypted": "true"},
+					deletePolicy)
+				if err != nil {
+					e2elog.Failf("failed to create storageclass with error %v", err)
+				}
+				pvc, app, err := createPVCAndAppBinding(pvcPath, appPath, f, deployTimeout)
+				if err != nil {
+					e2elog.Failf("failed to create PVC and bind it to app with encryption, error %v", err)
+				}
+				imageData, err := getImageInfoFromPVC(pvc.Namespace, pvc.Name, f)
+				if err != nil {
+					e2elog.Failf("failed to get image info from PVC, error %v", err)
+				}
+				selector, err := getDaemonSetLabelSelector(f, cephCSINamespace, rbdDaemonsetName)
+				if err != nil {
+					e2elog.Failf("failed to get the labels with error %v", err)
+				}
+				opt := metav1.ListOptions{
+					LabelSelector: selector,
+				}
+				cmd := fmt.Sprintf("cryptsetup status luks-rbd-%s | grep 'type:' | awk '{print $NF}'", imageData.csiVolumeHandle)
+				encryptionType, stdErr, err := execCommandInContainer(f, cmd, cephCSINamespace, "csi-rbdplugin", &opt)
+				if err != nil || stdErr != "" {
+					e2elog.Failf("failed to run cryptsetup status cmd, error: %v, stdErr: %v ", err, stdErr)
+				}
+				if !strings.Contains(encryptionType, defaultLUKSFormat) {
+					e2elog.Failf("failed, encryption type not matching %s, got: %s", defaultLUKSFormat, encryptionType)
+				}
+				e2elog.Logf("Great! encryption type matching %s, as expected.", defaultLUKSFormat)
+
+				// cleanup and undo changes made by the test
+				err = deletePVCAndApp("", f, pvc, app)
+				if err != nil {
+					e2elog.Failf("failed to delete PVC and application with error %v", err)
+				}
+				// validate created backend rbd images
+				validateRBDImageCount(f, 0, defaultRBDPool)
+				err = deleteResource(rbdExamplePath + "storageclass.yaml")
+				if err != nil {
+					e2elog.Failf("failed to delete storageclass with error %v", err)
+				}
+				err = createRBDStorageClass(f.ClientSet, f, defaultSCName, nil, nil, deletePolicy)
+				if err != nil {
+					e2elog.Failf("failed to create storageclass with error %v", err)
+				}
+			})
+
+			By("Resize Encrypted Block PVC and check Device size", func() {
+				err := deleteResource(rbdExamplePath + "storageclass.yaml")
+				if err != nil {
+					e2elog.Failf("failed to delete storageclass with error %v", err)
+				}
+				err = createRBDStorageClass(
+					f.ClientSet,
+					f,
+					defaultSCName,
+					nil,
+					map[string]string{"encrypted": "true"},
+					deletePolicy)
+				if err != nil {
+					e2elog.Failf("failed to create storageclass with error %v", err)
+				}
+
+				// FileSystem PVC resize
+				err = resizePVCAndValidateSize(pvcPath, appPath, f)
+				if err != nil {
+					e2elog.Failf("failed to resize block PVC with error %v", err)
+				}
+				// validate created backend rbd images
+				validateRBDImageCount(f, 0, defaultRBDPool)
+
+				// Block PVC resize
+				err = resizePVCAndValidateSize(rawPvcPath, rawAppPath, f)
+				if err != nil {
+					e2elog.Failf("failed to resize block PVC with error %v", err)
+				}
+				// validate created backend rbd images
+				validateRBDImageCount(f, 0, defaultRBDPool)
+
+				err = deleteResource(rbdExamplePath + "storageclass.yaml")
+				if err != nil {
+					e2elog.Failf("failed to delete storageclass with error %v", err)
+				}
+				err = createRBDStorageClass(f.ClientSet, f, defaultSCName, nil, nil, deletePolicy)
+				if err != nil {
+					e2elog.Failf("failed to create storageclass with error %v", err)
+				}
+			})
+
 			By("create a PVC and bind it to an app with encrypted RBD volume with VaultKMS", func() {
 				err := deleteResource(rbdExamplePath + "storageclass.yaml")
 				if err != nil {
