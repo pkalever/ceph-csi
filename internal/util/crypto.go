@@ -260,7 +260,7 @@ func ResizeEncryptedVolume(ctx context.Context, mapperFile string) error {
 	DebugLog(ctx, "Resizing LUKS device %s", mapperFile)
 	_, stderr, err := LuksResize(mapperFile)
 	if err != nil {
-		WarningLog(ctx, "failed to resize LUKS device %s: %s", mapperFile, stderr)
+		ErrorLog(ctx, "failed to resize LUKS device %s: %s", mapperFile, stderr)
 	}
 	return err
 }
