@@ -539,14 +539,26 @@ var _ = Describe("RBD", func() {
 					LabelSelector: fmt.Sprintf("app=%s", app.Name),
 				}
 				filePath := app.Spec.Containers[0].VolumeMounts[0].MountPath + "/test"
-				_, stdErr, err = execCommandInPod(
-					f,
-					fmt.Sprintf("echo 'Hello World' > %s", filePath),
-					app.Namespace,
-					&appOpt)
-				if err != nil || stdErr != "" {
-					e2elog.Failf("failed to write IO, err: %v, stdErr: %v ", err, stdErr)
-				}
+				err = wait.PollImmediate(poll, timeout, func() (bool, error) {
+					_, stdErr, err = execCommandInPod(
+						f,
+						fmt.Sprintf("echo 'Hello World' > %s", filePath),
+						app.Namespace,
+						&appOpt)
+					if err != nil {
+						e2elog.Failf("failed to run write command: %v", err)
+					}
+					if stdErr != "" {
+						readOnlyErr := fmt.Sprintf("cannot create %s: Read-only file system", filePath)
+						if strings.Contains(stdErr, readOnlyErr) {
+							e2elog.Logf("failed writing IO: %v", stdErr)
+							return false, nil
+						}
+						e2elog.Failf("failed to write IO, err: %v, stdErr: %v ", err, stdErr)
+					}
+					e2elog.Logf("write IO succeeded")
+					return true, nil
+				})
 
 				err = deletePVCAndApp("", f, pvc, app)
 				if err != nil {
